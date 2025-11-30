@@ -41,9 +41,17 @@ function LocationTrackerPWA() {
 
     watchIdRef.current = navigator.geolocation.watchPosition(
       (pos) => {
+        // Filter out inaccurate readings
+        if (pos.coords.accuracy > 20) {
+          console.log('Low accuracy, skipping');
+          return;
+        }
+
         const newPos = {
           lat: pos.coords.latitude,
           lon: pos.coords.longitude,
+          accuracy: pos.coords.accuracy,
+          speed: pos.coords.speed,
           timestamp: Date.now()
         };
         
@@ -53,15 +61,32 @@ function LocationTrackerPWA() {
           
           if (prev.length > 0) {
             const lastPos = prev[prev.length - 1];
-            const dist = haversineDistance(lastPos.lat, lastPos.lon, newPos.lat, newPos.lon);
-            setDistance(prevDist => prevDist + dist);
+            const timeDiff = (newPos.timestamp - lastPos.timestamp) / 1000;
+            
+            // Use GPS speed if available and moving
+            if (newPos.speed !== null && newPos.speed > 0.5) {
+              const distFromSpeed = newPos.speed * timeDiff;
+              setDistance(prevDist => prevDist + distFromSpeed);
+            } else {
+              // Otherwise calculate distance, but filter GPS noise
+              const dist = haversineDistance(lastPos.lat, lastPos.lon, newPos.lat, newPos.lon);
+              const MIN_DISTANCE = 5; // Only count movements over 5 meters
+              
+              if (dist >= MIN_DISTANCE) {
+                setDistance(prevDist => prevDist + dist);
+              }
+            }
           }
           
           return newPath;
         });
       },
       (err) => setError(`Error: ${err.message}`),
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+      { 
+        enableHighAccuracy: true,
+        maximumAge: 0,
+        timeout: 10000
+      }
     );
   };
 
@@ -109,11 +134,17 @@ function LocationTrackerPWA() {
               <div className="text-2xl font-bold text-blue-600">
                 {(distance / 1000).toFixed(3)} km
               </div>
+              <div className="text-xs text-gray-500 mt-1">
+                {distance.toFixed(1)} meters
+              </div>
             </div>
             <div className="bg-purple-50 p-4 rounded-lg">
               <div className="text-sm text-gray-600">Points</div>
               <div className="text-2xl font-bold text-purple-600">
                 {path.length}
+              </div>
+              <div className="text-xs text-gray-500 mt-1">
+                GPS readings
               </div>
             </div>
           </div>
@@ -121,9 +152,13 @@ function LocationTrackerPWA() {
           {position && (
             <div className="bg-gray-50 p-4 rounded-lg">
               <div className="text-sm text-gray-600 mb-2">Current Position</div>
-              <div className="font-mono text-sm">
+              <div className="font-mono text-sm space-y-1">
                 <div>Latitude: {position.lat.toFixed(6)}°</div>
                 <div>Longitude: {position.lon.toFixed(6)}°</div>
+                <div>Accuracy: ±{position.accuracy?.toFixed(1)} m</div>
+                {position.speed !== null && (
+                  <div>Speed: {(position.speed * 3.6).toFixed(1)} km/h</div>
+                )}
               </div>
             </div>
           )}
